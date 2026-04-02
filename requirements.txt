@@ -1,0 +1,4 @@
+gspread
+feedparser
+pandas
+google-auth
