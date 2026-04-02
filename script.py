@@ -11,7 +11,7 @@ import os
 import json
 
 # =========================================================
-# AUTHENTICATION (UPDATED FOR GITHUB)
+# AUTHENTICATION (GITHUB READY)
 # =========================================================
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -28,17 +28,17 @@ creds = Credentials.from_service_account_info(
 client = gspread.authorize(creds)
 
 # =========================================================
-# READ STARTUPS FROM SHEET
+# READ STARTUPS
 # =========================================================
 sheet = client.open("Startup Tracker").sheet1
 data = sheet.get_all_records()
 
 startups = [row["Startup Name"] for row in data if row["Startup Name"]]
 
-print("Startups:", startups)
+print("Startups loaded:", startups)
 
-# 🔥 LIMIT FOR TESTING
-startups = startups[:3]
+# 🔥 LIMIT (REMOVE AFTER TESTING)
+startups = startups[:5]
 
 # =========================================================
 # FETCH NEWS
@@ -82,7 +82,7 @@ for startup in startups:
             print(f"    ❌ Error in {source}: {e}")
 
 # =========================================================
-# DATAFRAME
+# CREATE DATAFRAME
 # =========================================================
 df = pd.DataFrame(all_articles, columns=[
     "Startup Name",
@@ -94,16 +94,40 @@ df = pd.DataFrame(all_articles, columns=[
     "Fetched At"
 ])
 
+# Remove duplicates within batch
 df.drop_duplicates(subset=["Title", "Link"], inplace=True)
 
-print(f"\nTotal rows fetched: {len(df)}")
+print(f"\nFetched rows: {len(df)}")
+
+# =========================================================
+# REMOVE EXISTING DUPLICATES FROM SHEET
+# =========================================================
+def get_existing_keys(sheet):
+    data = sheet.get_all_values()
+
+    if len(data) <= 1:
+        return set()
+
+    return set(
+        (row[1], row[4])  # Title + Link
+        for row in data[1:]
+        if len(row) > 4
+    )
+
+output_sheet = client.open("Startup Tracker").worksheet("News_Log")
+
+existing_keys = get_existing_keys(output_sheet)
+
+# Keep only NEW rows
+df_new = df[~df.apply(lambda x: (x["Title"], x["Link"]) in existing_keys, axis=1)]
+
+print(f"New unique rows to insert: {len(df_new)}")
 
 # =========================================================
 # WRITE TO GOOGLE SHEET
 # =========================================================
-if df.empty:
-    print("❌ No data to write")
+if df_new.empty:
+    print("✅ No new data (no duplicates added)")
 else:
-    output_sheet = client.open("Startup Tracker").worksheet("News_Log")
-    output_sheet.append_rows(df.values.tolist(), value_input_option='RAW')
-    print("✅ SUCCESS — Data written")
+    output_sheet.append_rows(df_new.values.tolist(), value_input_option='RAW')
+    print("✅ Only new data added to sheet")
