@@ -11,7 +11,7 @@ import os
 import json
 
 # =========================================================
-# AUTHENTICATION (GITHUB READY)
+# AUTHENTICATION
 # =========================================================
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -28,18 +28,6 @@ creds = Credentials.from_service_account_info(
 client = gspread.authorize(creds)
 
 # =========================================================
-# FUNCTION: ROBUST DATE FILTER
-# =========================================================
-def is_recent(entry, hours=48):
-    try:
-        if hasattr(entry, "published_parsed") and entry.published_parsed:
-            published_time = datetime(*entry.published_parsed[:6])
-            return published_time >= datetime.utcnow() - timedelta(hours=hours)
-        return False
-    except:
-        return False
-
-# =========================================================
 # READ STARTUPS
 # =========================================================
 sheet = client.open("Startup Tracker").sheet1
@@ -49,11 +37,11 @@ startups = [row["Startup Name"] for row in data if row["Startup Name"]]
 
 print("Startups loaded:", startups)
 
-# 🔥 LIMIT (REMOVE LATER)
+# 🔥 LIMIT FOR TESTING
 startups = startups[:5]
 
 # =========================================================
-# FETCH NEWS
+# FETCH NEWS (STRICT LATEST ONLY)
 # =========================================================
 all_articles = []
 
@@ -63,10 +51,9 @@ for startup in startups:
     query = f"{startup} startup funding OR acquisition OR launch"
     encoded_query = quote_plus(query)
 
+    # 🔥 USE ONLY GOOGLE (BEST FRESHNESS)
     rss_sources = [
-        ("Google RSS", f"https://news.google.com/rss/search?q={encoded_query}"),
-        ("Bing RSS", f"https://www.bing.com/news/search?q={encoded_query}&format=rss"),
-        ("Yahoo RSS", f"https://news.search.yahoo.com/rss?p={encoded_query}")
+        ("Google RSS", f"https://news.google.com/rss/search?q={encoded_query}")
     ]
 
     for source, url in rss_sources:
@@ -76,35 +63,45 @@ for startup in startups:
             feed = feedparser.parse(url)
 
             if not feed.entries:
-                print(f"    ❌ No data from {source}")
+                print("    ❌ No data")
                 continue
 
-            count = 0
+            articles_temp = []
 
             for entry in feed.entries:
 
-                # 🔥 STRICT DATE FILTER
-                if not is_recent(entry, hours=48):
+                # Skip if no valid timestamp
+                if not hasattr(entry, "published_parsed") or entry.published_parsed is None:
                     continue
 
-                published = entry.get("published", "")
+                published_time = datetime(*entry.published_parsed[:6])
 
-                all_articles.append([
-                    startup,
-                    entry.get("title", ""),
-                    published,
-                    source,
-                    entry.get("link", ""),
-                    entry.get("summary", ""),
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                ])
+                # 🔥 STRICT FILTER: last 48 hrs
+                if published_time < datetime.utcnow() - timedelta(hours=48):
+                    continue
 
-                count += 1
-                if count >= 3:
-                    break
+                articles_temp.append((
+                    published_time,
+                    [
+                        startup,
+                        entry.get("title", ""),
+                        entry.get("published", ""),
+                        source,
+                        entry.get("link", ""),
+                        entry.get("summary", ""),
+                        datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                    ]
+                ))
+
+            # 🔥 SORT BY LATEST
+            articles_temp.sort(reverse=True, key=lambda x: x[0])
+
+            # 🔥 TAKE TOP 3 ONLY
+            for _, article in articles_temp[:3]:
+                all_articles.append(article)
 
         except Exception as e:
-            print(f"    ❌ Error in {source}: {e}")
+            print(f"    ❌ Error: {e}")
 
 # =========================================================
 # CREATE DATAFRAME
@@ -134,7 +131,7 @@ def get_existing_keys(sheet):
         return set()
 
     return set(
-        (row[1], row[4])  # Title + Link
+        (row[1], row[4])
         for row in data[1:]
         if len(row) > 4
     )
@@ -148,10 +145,10 @@ df_new = df[~df.apply(lambda x: (x["Title"], x["Link"]) in existing_keys, axis=1
 print(f"New rows to insert: {len(df_new)}")
 
 # =========================================================
-# WRITE TO SHEET
+# WRITE TO GOOGLE SHEET
 # =========================================================
 if df_new.empty:
     print("✅ No new recent data")
 else:
     output_sheet.append_rows(df_new.values.tolist(), value_input_option='RAW')
-    print("✅ Only fresh (last 48 hrs) data added")
+    print("✅ Only latest fresh data added")
