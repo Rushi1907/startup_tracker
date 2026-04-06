@@ -28,6 +28,18 @@ creds = Credentials.from_service_account_info(
 client = gspread.authorize(creds)
 
 # =========================================================
+# RELEVANCE FILTER (VERY IMPORTANT)
+# =========================================================
+def is_relevant(title):
+    keywords = [
+        "funding", "raises", "raised", "acquire", "acquired",
+        "launch", "launches", "partnership", "investment",
+        "expansion", "deal", "merger"
+    ]
+    title_lower = title.lower()
+    return any(k in title_lower for k in keywords)
+
+# =========================================================
 # READ STARTUPS
 # =========================================================
 sheet = client.open("Startup Tracker").sheet1
@@ -37,11 +49,11 @@ startups = [row["Startup Name"] for row in data if row["Startup Name"]]
 
 print("Startups loaded:", startups)
 
-# 🔥 LIMIT FOR TESTING
+# 🔥 LIMIT (remove later)
 startups = startups[:5]
 
 # =========================================================
-# FETCH NEWS (STRICT LATEST ONLY)
+# FETCH NEWS
 # =========================================================
 all_articles = []
 
@@ -51,7 +63,6 @@ for startup in startups:
     query = f"{startup} startup funding OR acquisition OR launch"
     encoded_query = quote_plus(query)
 
-    # 🔥 USE ONLY GOOGLE (BEST FRESHNESS)
     rss_sources = [
         ("Google RSS", f"https://news.google.com/rss/search?q={encoded_query}")
     ]
@@ -70,21 +81,26 @@ for startup in startups:
 
             for entry in feed.entries:
 
-                # Skip if no valid timestamp
                 if not hasattr(entry, "published_parsed") or entry.published_parsed is None:
                     continue
 
                 published_time = datetime(*entry.published_parsed[:6])
 
-                # 🔥 STRICT FILTER: last 48 hrs
-                if published_time < datetime.utcnow() - timedelta(hours=48):
+                # 🔥 STRICT TIME FILTER (24 hrs)
+                if published_time < datetime.utcnow() - timedelta(hours=24):
+                    continue
+
+                title = entry.get("title", "")
+
+                # 🔥 RELEVANCE FILTER
+                if not is_relevant(title):
                     continue
 
                 articles_temp.append((
                     published_time,
                     [
                         startup,
-                        entry.get("title", ""),
+                        title,
                         entry.get("published", ""),
                         source,
                         entry.get("link", ""),
@@ -96,7 +112,7 @@ for startup in startups:
             # 🔥 SORT BY LATEST
             articles_temp.sort(reverse=True, key=lambda x: x[0])
 
-            # 🔥 TAKE TOP 3 ONLY
+            # 🔥 TAKE TOP 3
             for _, article in articles_temp[:3]:
                 all_articles.append(article)
 
@@ -104,7 +120,7 @@ for startup in startups:
             print(f"    ❌ Error: {e}")
 
 # =========================================================
-# CREATE DATAFRAME
+# DATAFRAME
 # =========================================================
 df = pd.DataFrame(all_articles, columns=[
     "Startup Name",
@@ -116,7 +132,6 @@ df = pd.DataFrame(all_articles, columns=[
     "Fetched At"
 ])
 
-# Remove duplicates in batch
 df.drop_duplicates(subset=["Title", "Link"], inplace=True)
 
 print(f"\nFiltered rows: {len(df)}")
@@ -130,11 +145,7 @@ def get_existing_keys(sheet):
     if len(data) <= 1:
         return set()
 
-    return set(
-        (row[1], row[4])
-        for row in data[1:]
-        if len(row) > 4
-    )
+    return set((row[1], row[4]) for row in data[1:] if len(row) > 4)
 
 output_sheet = client.open("Startup Tracker").worksheet("News_Log")
 
@@ -148,7 +159,7 @@ print(f"New rows to insert: {len(df_new)}")
 # WRITE TO GOOGLE SHEET
 # =========================================================
 if df_new.empty:
-    print("✅ No new recent data")
+    print("✅ No new relevant data")
 else:
     output_sheet.append_rows(df_new.values.tolist(), value_input_option='RAW')
-    print("✅ Only latest fresh data added")
+    print("✅ Only latest relevant data added")
