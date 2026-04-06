@@ -28,12 +28,14 @@ creds = Credentials.from_service_account_info(
 client = gspread.authorize(creds)
 
 # =========================================================
-# FUNCTION: CHECK RECENT NEWS
+# FUNCTION: ROBUST DATE FILTER
 # =========================================================
-def is_recent(published_str, hours=48):
+def is_recent(entry, hours=48):
     try:
-        published_time = datetime.strptime(published_str, "%a, %d %b %Y %H:%M:%S %Z")
-        return published_time >= datetime.utcnow() - timedelta(hours=hours)
+        if hasattr(entry, "published_parsed") and entry.published_parsed:
+            published_time = datetime(*entry.published_parsed[:6])
+            return published_time >= datetime.utcnow() - timedelta(hours=hours)
+        return False
     except:
         return False
 
@@ -47,7 +49,7 @@ startups = [row["Startup Name"] for row in data if row["Startup Name"]]
 
 print("Startups loaded:", startups)
 
-# 🔥 LIMIT (REMOVE AFTER TESTING)
+# 🔥 LIMIT (REMOVE LATER)
 startups = startups[:5]
 
 # =========================================================
@@ -80,11 +82,12 @@ for startup in startups:
             count = 0
 
             for entry in feed.entries:
-                published = entry.get("published", "")
 
-                # 🔥 FILTER ONLY RECENT NEWS
-                if not is_recent(published, hours=48):
+                # 🔥 STRICT DATE FILTER
+                if not is_recent(entry, hours=48):
                     continue
+
+                published = entry.get("published", "")
 
                 all_articles.append([
                     startup,
@@ -97,7 +100,7 @@ for startup in startups:
                 ])
 
                 count += 1
-                if count >= 3:   # limit per source
+                if count >= 3:
                     break
 
         except Exception as e:
@@ -116,10 +119,10 @@ df = pd.DataFrame(all_articles, columns=[
     "Fetched At"
 ])
 
-# Remove duplicates within batch
+# Remove duplicates in batch
 df.drop_duplicates(subset=["Title", "Link"], inplace=True)
 
-print(f"\nFetched rows after filtering: {len(df)}")
+print(f"\nFiltered rows: {len(df)}")
 
 # =========================================================
 # REMOVE EXISTING DUPLICATES FROM SHEET
@@ -140,16 +143,15 @@ output_sheet = client.open("Startup Tracker").worksheet("News_Log")
 
 existing_keys = get_existing_keys(output_sheet)
 
-# Keep only NEW rows
 df_new = df[~df.apply(lambda x: (x["Title"], x["Link"]) in existing_keys, axis=1)]
 
-print(f"New unique rows to insert: {len(df_new)}")
+print(f"New rows to insert: {len(df_new)}")
 
 # =========================================================
-# WRITE TO GOOGLE SHEET
+# WRITE TO SHEET
 # =========================================================
 if df_new.empty:
-    print("✅ No new data (no duplicates added)")
+    print("✅ No new recent data")
 else:
     output_sheet.append_rows(df_new.values.tolist(), value_input_option='RAW')
-    print("✅ Only fresh & new data added")
+    print("✅ Only fresh (last 48 hrs) data added")
