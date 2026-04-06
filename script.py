@@ -121,6 +121,26 @@ def parse_published(entry) -> tuple[str, datetime | None]:
     except Exception:
         return raw, None
 
+def generate_insight(title):
+    title_lower = title.lower()
+
+    if "funding" in title_lower or "raises" in title_lower or "raised" in title_lower:
+        return "Startup secured funding → indicates growth and investor confidence"
+
+    elif "acquire" in title_lower or "acquired" in title_lower:
+        return "Acquisition activity → expansion or market consolidation"
+
+    elif "launch" in title_lower or "launches" in title_lower:
+        return "Product launch → innovation or market expansion"
+
+    elif "partnership" in title_lower:
+        return "Strategic partnership → collaboration for scaling"
+
+    elif "hiring" in title_lower or "expansion" in title_lower:
+        return "Hiring/expansion → operational growth"
+
+    else:
+        return "General update → monitor for strategic signals"
 
 def fetch_news(startup_name: str) -> list[dict]:
     """Fetch latest news articles for a startup from Google News RSS."""
@@ -145,10 +165,10 @@ def fetch_news(startup_name: str) -> list[dict]:
             "startup":    startup_name,
             "title":      entry.get("title", "").strip(),
             "link":       entry.get("link", "").strip(),
-            "published":  pub_str,
-            "_pub_dt":    pub_dt,          # temp field for sorting
-            "source":     entry.get("source", {}).get("title", "Google News").strip(),
-            "fetched_at": now.strftime("%Y-%m-%d %H:%M UTC"),
+            "published": published_str,
+            "source": entry.get("source", {}).get("title", "Google News"),
+            "insight": generate_insight(title),   # 🔥 NEW FIELD
+            "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         })
 
     # Sort newest-first, then take the top N
@@ -167,7 +187,7 @@ def fetch_news(startup_name: str) -> list[dict]:
 # DEDUPLICATION HELPERS
 # ─────────────────────────────────────────────
 
-HEADERS = ["Startup", "Title", "Link", "Published", "Source", "Fetched At"]
+HEADERS = ["Startup", "Title", "Link", "Published", "Source", "Insight", "Fetched At"]
 
 def article_fingerprint(article: dict) -> str:
     """
@@ -233,13 +253,14 @@ def write_articles(
         if fp in existing_fps:
             continue
         new_rows.append([
-            article["startup"],
-            article["title"],
-            article["link"],
-            article["published"],
-            article["source"],
-            article["fetched_at"],
-        ])
+        article["startup"],
+        article["title"],
+        article["link"],
+        article["published"],
+        article["source"],
+        article["insight"],   # 🔥 NEW COLUMN
+        article["fetched_at"],
+    ])
         existing_fps.add(fp)   # Prevent intra-batch duplicates too
 
     if new_rows:
