@@ -41,7 +41,8 @@ OUTPUT_SPREADSHEET_ID  = "Starup Tracker"                 # Sheet to write news 
 OUTPUT_SHEET_NAME      = "News_Log"                   # Tab name in output sheet
 
 MAX_ARTICLES_PER_STARTUP = 10   # Latest N articles per startup per run
-SLEEP_BETWEEN_STARTUPS   = 1.5  # Seconds to wait between RSS calls (rate-limit safety)
+MAX_ARTICLE_AGE_DAYS     = 7    # Skip articles older than this many days (0 = no filter)
+SLEEP_BETWEEN_STARTUPS   = 1.5
 
 # ─────────────────────────────────────────────
 # LOGGING
@@ -106,18 +107,19 @@ def build_rss_url(startup_name: str) -> str:
     )
 
 
-def parse_published(entry) -> str:
-    """Return ISO-8601 UTC timestamp from an RSS entry, or empty string."""
+def parse_published(entry) -> tuple[str, datetime | None]:
+    """Return (formatted string, UTC datetime) from an RSS entry."""
     raw = getattr(entry, "published", None) or getattr(entry, "updated", None)
     if not raw:
-        return ""
+        return "", None
     try:
         dt = dateutil_parser.parse(raw)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        dt_utc = dt.astimezone(timezone.utc)
+        return dt_utc.strftime("%Y-%m-%d %H:%M UTC"), dt_utc
     except Exception:
-        return raw
+        return raw, None
 
 
 def fetch_news(startup_name: str) -> list[dict]:
@@ -125,18 +127,39 @@ def fetch_news(startup_name: str) -> list[dict]:
     url = build_rss_url(startup_name)
     feed = feedparser.parse(url)
 
-    articles = []
-    for entry in feed.entries[:MAX_ARTICLES_PER_STARTUP]:
-        articles.append({
-            "startup":   startup_name,
-            "title":     entry.get("title", "").strip(),
-            "link":      entry.get("link", "").strip(),
-            "published": parse_published(entry),
-            "source":    entry.get("source", {}).get("title", "Google News").strip(),
-            "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    now = datetime.now(timezone.utc)
+    cutoff = None
+    if MAX_ARTICLE_AGE_DAYS > 0:
+        from datetime import timedelta
+        cutoff = now - timedelta(days=MAX_ARTICLE_AGE_DAYS)
+
+    parsed = []
+    for entry in feed.entries:
+        pub_str, pub_dt = parse_published(entry)
+
+        # Skip articles older than the cutoff
+        if cutoff and pub_dt and pub_dt < cutoff:
+            continue
+
+        parsed.append({
+            "startup":    startup_name,
+            "title":      entry.get("title", "").strip(),
+            "link":       entry.get("link", "").strip(),
+            "published":  pub_str,
+            "_pub_dt":    pub_dt,          # temp field for sorting
+            "source":     entry.get("source", {}).get("title", "Google News").strip(),
+            "fetched_at": now.strftime("%Y-%m-%d %H:%M UTC"),
         })
 
-    log.info(f"  [{startup_name}] → {len(articles)} articles fetched.")
+    # Sort newest-first, then take the top N
+    parsed.sort(key=lambda a: a["_pub_dt"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    articles = parsed[:MAX_ARTICLES_PER_STARTUP]
+
+    # Remove the temp sorting field before returning
+    for a in articles:
+        a.pop("_pub_dt")
+
+    log.info(f"  [{startup_name}] → {len(articles)} articles fetched (filtered & sorted).")
     return articles
 
 
