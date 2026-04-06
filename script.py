@@ -5,7 +5,7 @@ import gspread
 import feedparser
 import pandas as pd
 from google.oauth2.service_account import Credentials
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote_plus
 import os
 import json
@@ -26,6 +26,16 @@ creds = Credentials.from_service_account_info(
 )
 
 client = gspread.authorize(creds)
+
+# =========================================================
+# FUNCTION: CHECK RECENT NEWS
+# =========================================================
+def is_recent(published_str, hours=48):
+    try:
+        published_time = datetime.strptime(published_str, "%a, %d %b %Y %H:%M:%S %Z")
+        return published_time >= datetime.utcnow() - timedelta(hours=hours)
+    except:
+        return False
 
 # =========================================================
 # READ STARTUPS
@@ -67,16 +77,28 @@ for startup in startups:
                 print(f"    ❌ No data from {source}")
                 continue
 
-            for entry in feed.entries[:2]:
+            count = 0
+
+            for entry in feed.entries:
+                published = entry.get("published", "")
+
+                # 🔥 FILTER ONLY RECENT NEWS
+                if not is_recent(published, hours=48):
+                    continue
+
                 all_articles.append([
                     startup,
                     entry.get("title", ""),
-                    entry.get("published", ""),
+                    published,
                     source,
                     entry.get("link", ""),
                     entry.get("summary", ""),
                     datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 ])
+
+                count += 1
+                if count >= 3:   # limit per source
+                    break
 
         except Exception as e:
             print(f"    ❌ Error in {source}: {e}")
@@ -97,7 +119,7 @@ df = pd.DataFrame(all_articles, columns=[
 # Remove duplicates within batch
 df.drop_duplicates(subset=["Title", "Link"], inplace=True)
 
-print(f"\nFetched rows: {len(df)}")
+print(f"\nFetched rows after filtering: {len(df)}")
 
 # =========================================================
 # REMOVE EXISTING DUPLICATES FROM SHEET
@@ -130,4 +152,4 @@ if df_new.empty:
     print("✅ No new data (no duplicates added)")
 else:
     output_sheet.append_rows(df_new.values.tolist(), value_input_option='RAW')
-    print("✅ Only new data added to sheet")
+    print("✅ Only fresh & new data added")
