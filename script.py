@@ -92,7 +92,7 @@ for startup in startups:
         published_time = datetime(*entry.published_parsed[:6])
 
         # 🔥 FILTER LAST 24 HOURS
-        if published_time < datetime.utcnow() - timedelta(hours=24):
+        if published_time < datetime.utcnow() - timedelta(days=2):
             continue
 
         title = entry.get("title", "")
