@@ -148,7 +148,7 @@ def get_existing_keys(sheet):
 
     return set((row[1], row[2]) for row in data[1:] if len(row) > 2)
 
-output_sheet = client.open("Startup Tracker").worksheet("News_Log")
+output_sheet = client.open("Startup Tracker").worksheet("News_Log_V2")
 
 existing_keys = get_existing_keys(output_sheet)
 
