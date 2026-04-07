@@ -11,7 +11,7 @@ import os
 import json
 
 # =========================================================
-# RSS FEEDS (NEW ADDITION)
+# RSS FEEDS
 # =========================================================
 RSS_FEEDS = [
     "https://techcrunch.com/feed/",
@@ -44,6 +44,33 @@ creds = Credentials.from_service_account_info(
 client = gspread.authorize(creds)
 
 # =========================================================
+# GET CLEAN SOURCE NAME
+# =========================================================
+def get_feed_name(feed, feed_url):
+    try:
+        if hasattr(feed, "feed") and "title" in feed.feed:
+            return feed.feed.title.strip()
+    except:
+        pass
+
+    domain = feed_url.replace("https://", "").replace("http://", "").split("/")[0]
+
+    domain_map = {
+        "techcrunch.com": "TechCrunch",
+        "venturebeat.com": "VentureBeat",
+        "sportstechx.com": "SportsTechX",
+        "sportbusiness.com": "SportBusiness",
+        "sportsbusinessjournal.com": "SBJ",
+        "theverge.com": "The Verge",
+        "technologyreview.com": "MIT Tech Review",
+        "streamingmedia.com": "Streaming Media",
+        "roadtovr.com": "Road to VR",
+        "news.google.com": "Google News"
+    }
+
+    return domain_map.get(domain, domain)
+
+# =========================================================
 # AI INSIGHT FUNCTION
 # =========================================================
 def generate_insight(title):
@@ -72,12 +99,16 @@ def is_relevant(title):
     return any(k in title.lower() for k in keywords)
 
 # =========================================================
-# READ STARTUPS
+# READ STARTUPS (CLEANED)
 # =========================================================
 sheet = client.open("Startup Tracker").sheet1
 data = sheet.get_all_records()
 
-startups = [row["Startup Name"] for row in data if row["Startup Name"]]
+startups = list(set([
+    row["Startup Name"].strip()
+    for row in data
+    if row["Startup Name"]
+]))
 
 print("Startups loaded:", startups)
 
@@ -117,22 +148,22 @@ for startup in startups:
             title,
             entry.get("link", ""),
             entry.get("published", ""),
-            source_name,   # ✅ dynamic
+            source_name,
             generate_insight(title),
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         ])
-
 
 # ---------------- CUSTOM RSS FEEDS ----------------
 for feed_url in RSS_FEEDS:
     print(f"\n[Custom RSS] Fetching from: {feed_url}")
 
     feed = feedparser.parse(feed_url)
-    source_name = get_feed_name(feed, feed_url)  # ✅ dynamic
+    source_name = get_feed_name(feed, feed_url)
 
     for entry in feed.entries:
 
-        title = entry.get("title", "").lower()
+        title_raw = entry.get("title", "")
+        title = title_raw.lower()
 
         if not is_relevant(title):
             continue
@@ -150,13 +181,14 @@ for feed_url in RSS_FEEDS:
 
                 all_articles.append([
                     startup,
-                    entry.get("title", ""),
+                    title_raw,
                     entry.get("link", ""),
                     entry.get("published", ""),
-                    source_name,   # ✅ dynamic
-                    generate_insight(entry.get("title", "")),
+                    source_name,
+                    generate_insight(title_raw),
                     datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 ])
+
 # =========================================================
 # DATAFRAME
 # =========================================================
