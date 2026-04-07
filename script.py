@@ -96,6 +96,8 @@ for startup in startups:
     url = f"https://news.google.com/rss/search?q={encoded_query}"
     feed = feedparser.parse(url)
 
+    source_name = get_feed_name(feed, url)
+
     for entry in feed.entries:
         if not hasattr(entry, "published_parsed") or entry.published_parsed is None:
             continue
@@ -115,16 +117,18 @@ for startup in startups:
             title,
             entry.get("link", ""),
             entry.get("published", ""),
-            "Google News",
+            source_name,   # ✅ dynamic
             generate_insight(title),
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         ])
+
 
 # ---------------- CUSTOM RSS FEEDS ----------------
 for feed_url in RSS_FEEDS:
     print(f"\n[Custom RSS] Fetching from: {feed_url}")
 
     feed = feedparser.parse(feed_url)
+    source_name = get_feed_name(feed, feed_url)  # ✅ dynamic
 
     for entry in feed.entries:
 
@@ -133,7 +137,6 @@ for feed_url in RSS_FEEDS:
         if not is_relevant(title):
             continue
 
-        # Match startup name in title
         for startup in startups:
             if startup.lower() in title:
 
@@ -150,11 +153,10 @@ for feed_url in RSS_FEEDS:
                     entry.get("title", ""),
                     entry.get("link", ""),
                     entry.get("published", ""),
-                    feed_url,   # 🔥 Source = actual RSS
+                    source_name,   # ✅ dynamic
                     generate_insight(entry.get("title", "")),
                     datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
                 ])
-
 # =========================================================
 # DATAFRAME
 # =========================================================
