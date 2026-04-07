@@ -10,6 +10,7 @@ from urllib.parse import quote_plus
 import os
 import json
 import re
+from difflib import SequenceMatcher
 
 # =========================================================
 # DATE FILTER (Q1 2026)
@@ -41,13 +42,23 @@ scope = [
 ]
 
 creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
-
-creds = Credentials.from_service_account_info(
-    creds_dict,
-    scopes=scope
-)
-
+creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
 client = gspread.authorize(creds)
+
+# =========================================================
+# CLEAN TITLE (FOR DEDUP)
+# =========================================================
+def clean_title(title):
+    title = title.lower()
+    title = re.sub(r'[^a-z0-9\s]', '', title)
+    title = re.sub(r'\s+', ' ', title).strip()
+    return title
+
+# =========================================================
+# SIMILARITY FUNCTION
+# =========================================================
+def is_similar(a, b, threshold=0.7):
+    return SequenceMatcher(None, a, b).ratio() > threshold
 
 # =========================================================
 # GET SOURCE NAME
@@ -105,12 +116,11 @@ def is_relevant(title):
     return any(k in title.lower() for k in keywords)
 
 # =========================================================
-# READ STARTUPS (CLEAN + NORMALIZED)
+# READ STARTUPS
 # =========================================================
 sheet = client.open("Startup Tracker").sheet1
 data = sheet.get_all_records()
 
-# Keep original + normalized version
 startup_map = {
     row["Startup Name"].strip().lower(): row["Startup Name"].strip()
     for row in data
@@ -136,10 +146,7 @@ for startup in startups:
 
     source_name = get_feed_name(feed, google_url)
 
-    print(f"\n[Google News] {startup}")
-
     for entry in feed.entries:
-
         if not hasattr(entry, "published_parsed") or entry.published_parsed is None:
             continue
 
@@ -154,14 +161,13 @@ for startup in startups:
         if not is_relevant(title):
             continue
 
-        # STRICT MATCH
         pattern = r'\b' + re.escape(startup) + r'\b'
 
         if not re.search(pattern, title):
             continue
 
         all_articles.append([
-            startup_map[startup],   # original name
+            startup_map[startup],
             title_raw,
             entry.get("link", ""),
             entry.get("published", ""),
@@ -172,13 +178,10 @@ for startup in startups:
 
 # ---------------- CUSTOM RSS ----------------
 for feed_url in RSS_FEEDS:
-    print(f"\n[RSS] Fetching: {feed_url}")
-
     feed = feedparser.parse(feed_url)
     source_name = get_feed_name(feed, feed_url)
 
     for entry in feed.entries:
-
         title_raw = entry.get("title", "")
         title = title_raw.lower()
 
@@ -186,7 +189,6 @@ for feed_url in RSS_FEEDS:
             continue
 
         for startup in startups:
-
             pattern = r'\b' + re.escape(startup) + r'\b'
 
             if not re.search(pattern, title):
@@ -201,7 +203,7 @@ for feed_url in RSS_FEEDS:
                 continue
 
             all_articles.append([
-                startup_map[startup],   # original name
+                startup_map[startup],
                 title_raw,
                 entry.get("link", ""),
                 entry.get("published", ""),
@@ -209,6 +211,27 @@ for feed_url in RSS_FEEDS:
                 generate_insight(title_raw),
                 datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             ])
+
+# =========================================================
+# 🔥 SEMANTIC DEDUPLICATION
+# =========================================================
+unique_articles = []
+seen_titles = []
+
+for row in all_articles:
+    cleaned = clean_title(row[1])
+
+    duplicate = False
+    for seen in seen_titles:
+        if is_similar(cleaned, seen):
+            duplicate = True
+            break
+
+    if not duplicate:
+        seen_titles.append(cleaned)
+        unique_articles.append(row)
+
+all_articles = unique_articles
 
 # =========================================================
 # DATAFRAME
@@ -225,32 +248,15 @@ df = pd.DataFrame(all_articles, columns=[
 
 df.drop_duplicates(subset=["Title", "Link"], inplace=True)
 
-print(f"\nFiltered rows: {len(df)}")
-
-# =========================================================
-# REMOVE EXISTING DUPLICATES
-# =========================================================
-def get_existing_keys(sheet):
-    data = sheet.get_all_values()
-
-    if len(data) <= 1:
-        return set()
-
-    return set((row[1], row[2]) for row in data[1:] if len(row) > 2)
-
-output_sheet = client.open("Startup Tracker").worksheet("News_Log_V2")
-
-existing_keys = get_existing_keys(output_sheet)
-
-df_new = df[~df.apply(lambda x: (x["Title"], x["Link"]) in existing_keys, axis=1)]
-
-print(f"New rows to insert: {len(df_new)}")
+print(f"\nFiltered rows after dedup: {len(df)}")
 
 # =========================================================
 # WRITE TO GOOGLE SHEET
 # =========================================================
-if df_new.empty:
+output_sheet = client.open("Startup Tracker").worksheet("News_Log_V2")
+
+if df.empty:
     print("✅ No new relevant data")
 else:
-    output_sheet.append_rows(df_new.values.tolist(), value_input_option='RAW')
-    print("✅ Insights + clean data added")
+    output_sheet.append_rows(df.values.tolist(), value_input_option='RAW')
+    print("✅ Clean deduplicated insights added")
