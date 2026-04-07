@@ -32,12 +32,12 @@ from google.oauth2.service_account import Credentials
 
 SERVICE_ACCOUNT_FILE = "service_account.json"   # Path to your Google service account key
 
-SOURCE_SPREADSHEET_ID  = "Startup Tracker"    # Sheet containing startup names
+SOURCE_SPREADSHEET_ID  = "1xtQQ1eQuvcYgO6c54c7g65l7cGqZN_YSSgStHFvARho"    # Sheet containing startup names
 SOURCE_SHEET_NAME      = "Sheet1"                         # Tab name in source sheet
 SOURCE_STARTUP_COLUMN  = "Startup Name"                              # Column holding startup names
 SOURCE_HEADER_ROW      = 1                                # Row number of the header
 
-OUTPUT_SPREADSHEET_ID  = "Starup Tracker"                 # Sheet to write news into
+OUTPUT_SPREADSHEET_ID  = "1xtQQ1eQuvcYgO6c54c7g65l7cGqZN_YSSgStHFvARho"                 # Sheet to write news into
 OUTPUT_SHEET_NAME      = "News_Log"                   # Tab name in output sheet
 
 MAX_ARTICLES_PER_STARTUP = 10   # Latest N articles per startup per run
