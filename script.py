@@ -82,7 +82,7 @@ def is_strong_event(title):
     return any(k in title.lower() for k in strong_keywords)
 
 # =========================================================
-# EVENT SIGNATURE
+# EVENT SIGNATURE (IMPROVED)
 # =========================================================
 def extract_event_signature(title):
     title = title.lower()
@@ -91,6 +91,8 @@ def extract_event_signature(title):
         event_type = "funding"
     elif "acquire" in title:
         event_type = "acquisition"
+    elif "launch" in title:
+        event_type = "launch"
     else:
         event_type = "other"
 
@@ -153,6 +155,7 @@ for startup in startups:
             continue
 
         published_time = datetime(*entry.published_parsed[:6])
+
         if published_time < Q1_START:
             continue
 
@@ -221,7 +224,7 @@ for feed_url in RSS_FEEDS:
             ])
 
 # =========================================================
-# 🔥 DECISION-LEVEL DEDUP
+# 🔥 DECISION-LEVEL DEDUP (IMPROVED)
 # =========================================================
 event_groups = {}
 
@@ -237,6 +240,7 @@ for row in all_articles:
         continue
 
     date_key = published_time.strftime("%Y-%m-%d")
+
     key = f"{startup}_{event_type}_{amount}_{valuation}_{date_key}"
 
     if key not in event_groups or len(title) > len(event_groups[key][1]):
