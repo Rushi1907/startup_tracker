@@ -5,10 +5,11 @@ import gspread
 import feedparser
 import pandas as pd
 from google.oauth2.service_account import Credentials
-from datetime import datetime, timedelta
+from datetime import datetime
 from urllib.parse import quote_plus
 import os
 import json
+import re
 
 # =========================================================
 # DATE FILTER (Q1 2026)
@@ -104,16 +105,19 @@ def is_relevant(title):
     return any(k in title.lower() for k in keywords)
 
 # =========================================================
-# READ STARTUPS (CLEANED)
+# READ STARTUPS (CLEAN + NORMALIZED)
 # =========================================================
 sheet = client.open("Startup Tracker").sheet1
 data = sheet.get_all_records()
 
-startups = list(set([
-    row["Startup Name"].strip()
+# Keep original + normalized version
+startup_map = {
+    row["Startup Name"].strip().lower(): row["Startup Name"].strip()
     for row in data
     if row["Startup Name"]
-]))
+}
+
+startups = list(startup_map.keys())
 
 print("Startups loaded:", startups)
 
@@ -141,22 +145,28 @@ for startup in startups:
 
         published_time = datetime(*entry.published_parsed[:6])
 
-        # ✅ Q1 FILTER
         if published_time < Q1_START:
             continue
 
-        title = entry.get("title", "")
+        title_raw = entry.get("title", "")
+        title = title_raw.lower()
 
         if not is_relevant(title):
             continue
 
+        # STRICT MATCH
+        pattern = r'\b' + re.escape(startup) + r'\b'
+
+        if not re.search(pattern, title):
+            continue
+
         all_articles.append([
-            startup,
-            title,
+            startup_map[startup],   # original name
+            title_raw,
             entry.get("link", ""),
             entry.get("published", ""),
             source_name,
-            generate_insight(title),
+            generate_insight(title_raw),
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         ])
 
@@ -176,26 +186,29 @@ for feed_url in RSS_FEEDS:
             continue
 
         for startup in startups:
-            if startup.lower() in title:
 
-                if hasattr(entry, "published_parsed") and entry.published_parsed:
-                    published_time = datetime(*entry.published_parsed[:6])
-                else:
-                    published_time = datetime.utcnow()
+            pattern = r'\b' + re.escape(startup) + r'\b'
 
-                # ✅ Q1 FILTER
-                if published_time < Q1_START:
-                    continue
+            if not re.search(pattern, title):
+                continue
 
-                all_articles.append([
-                    startup,
-                    title_raw,
-                    entry.get("link", ""),
-                    entry.get("published", ""),
-                    source_name,
-                    generate_insight(title_raw),
-                    datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-                ])
+            if hasattr(entry, "published_parsed") and entry.published_parsed:
+                published_time = datetime(*entry.published_parsed[:6])
+            else:
+                published_time = datetime.utcnow()
+
+            if published_time < Q1_START:
+                continue
+
+            all_articles.append([
+                startup_map[startup],   # original name
+                title_raw,
+                entry.get("link", ""),
+                entry.get("published", ""),
+                source_name,
+                generate_insight(title_raw),
+                datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            ])
 
 # =========================================================
 # DATAFRAME
