@@ -101,6 +101,7 @@ def is_relevant(title):
 # =========================================================
 # READ STARTUPS (CLEANED)
 # =========================================================
+Q1_START = datetime(2026, 1, 1)
 sheet = client.open("Startup Tracker").sheet1
 data = sheet.get_all_records()
 
@@ -136,7 +137,7 @@ for startup in startups:
 
         published_time = datetime(*entry.published_parsed[:6])
 
-        if published_time < datetime.utcnow() - timedelta(days=180):
+        if published_time < datetime.utcnow() - timedelta(days=Q1_START):
             continue
 
         title = entry.get("title", "")
@@ -177,7 +178,7 @@ for feed_url in RSS_FEEDS:
                 else:
                     published_time = datetime.utcnow()
 
-                if published_time < datetime.utcnow() - timedelta(days=180):
+                if published_time < datetime.utcnow() - timedelta(days=Q1_START):
                     continue
 
                 all_articles.append([
