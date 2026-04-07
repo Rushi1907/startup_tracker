@@ -136,7 +136,7 @@ for startup in startups:
 
         published_time = datetime(*entry.published_parsed[:6])
 
-        if published_time < datetime.utcnow() - timedelta(days=365):
+        if published_time < datetime.utcnow() - timedelta(days=180):
             continue
 
         title = entry.get("title", "")
@@ -177,7 +177,7 @@ for feed_url in RSS_FEEDS:
                 else:
                     published_time = datetime.utcnow()
 
-                if published_time < datetime.utcnow() - timedelta(days=365):
+                if published_time < datetime.utcnow() - timedelta(days=180):
                     continue
 
                 all_articles.append([
