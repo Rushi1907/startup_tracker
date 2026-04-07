@@ -44,7 +44,7 @@ creds = Credentials.from_service_account_info(
 client = gspread.authorize(creds)
 
 # =========================================================
-# GET CLEAN SOURCE NAME
+# GET SOURCE NAME
 # =========================================================
 def get_feed_name(feed, feed_url):
     try:
@@ -113,23 +113,24 @@ startups = list(set([
 print("Startups loaded:", startups)
 
 # =========================================================
-# FETCH NEWS
+# FETCH NEWS (UNIFIED PIPELINE)
 # =========================================================
 all_articles = []
 
-# ---------------- GOOGLE NEWS ----------------
+# ---------------- GOOGLE NEWS (NOW LIKE RSS) ----------------
 for startup in startups:
-    print(f"\n[Google RSS] Fetching: {startup}")
-
     query = f"{startup} startup funding OR acquisition OR launch"
     encoded_query = quote_plus(query)
 
-    url = f"https://news.google.com/rss/search?q={encoded_query}"
-    feed = feedparser.parse(url)
+    google_url = f"https://news.google.com/rss/search?q={encoded_query}"
+    feed = feedparser.parse(google_url)
 
-    source_name = get_feed_name(feed, url)
+    source_name = get_feed_name(feed, google_url)
+
+    print(f"\n[Google News] {startup}")
 
     for entry in feed.entries:
+
         if not hasattr(entry, "published_parsed") or entry.published_parsed is None:
             continue
 
@@ -153,9 +154,9 @@ for startup in startups:
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         ])
 
-# ---------------- CUSTOM RSS FEEDS ----------------
+# ---------------- CUSTOM RSS ----------------
 for feed_url in RSS_FEEDS:
-    print(f"\n[Custom RSS] Fetching from: {feed_url}")
+    print(f"\n[RSS] Fetching: {feed_url}")
 
     feed = feedparser.parse(feed_url)
     source_name = get_feed_name(feed, feed_url)
