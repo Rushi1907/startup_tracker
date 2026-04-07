@@ -11,6 +11,11 @@ import os
 import json
 
 # =========================================================
+# DATE FILTER (Q1 2026)
+# =========================================================
+Q1_START = datetime(2026, 1, 1)
+
+# =========================================================
 # RSS FEEDS
 # =========================================================
 RSS_FEEDS = [
@@ -101,7 +106,6 @@ def is_relevant(title):
 # =========================================================
 # READ STARTUPS (CLEANED)
 # =========================================================
-Q1_START = datetime(2026, 1, 1)
 sheet = client.open("Startup Tracker").sheet1
 data = sheet.get_all_records()
 
@@ -114,13 +118,13 @@ startups = list(set([
 print("Startups loaded:", startups)
 
 # =========================================================
-# FETCH NEWS (UNIFIED PIPELINE)
+# FETCH NEWS
 # =========================================================
 all_articles = []
 
-# ---------------- GOOGLE NEWS (NOW LIKE RSS) ----------------
+# ---------------- GOOGLE NEWS ----------------
 for startup in startups:
-    query = f"{startup} startup funding OR acquisition OR launch"
+    query = f"{startup} (funding OR acquisition OR launch) after:2026-01-01"
     encoded_query = quote_plus(query)
 
     google_url = f"https://news.google.com/rss/search?q={encoded_query}"
@@ -137,7 +141,8 @@ for startup in startups:
 
         published_time = datetime(*entry.published_parsed[:6])
 
-        if published_time < datetime.utcnow() - timedelta(days=Q1_START):
+        # ✅ Q1 FILTER
+        if published_time < Q1_START:
             continue
 
         title = entry.get("title", "")
@@ -178,7 +183,8 @@ for feed_url in RSS_FEEDS:
                 else:
                     published_time = datetime.utcnow()
 
-                if published_time < datetime.utcnow() - timedelta(days=Q1_START):
+                # ✅ Q1 FILTER
+                if published_time < Q1_START:
                     continue
 
                 all_articles.append([
