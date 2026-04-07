@@ -100,33 +100,30 @@ def is_relevant(title):
     return any(k in title.lower() for k in keywords)
 
 # =========================================================
-# 🔥 EVENT SIGNATURE (STRUCTURED)
+# EVENT SIGNATURE (KEY DEDUP LOGIC)
 # =========================================================
 def extract_event_signature(title):
     title = title.lower()
+    keywords = []
 
-    # Event type
-    if "raise" in title or "funding" in title:
-        event_type = "funding"
-    elif "acquire" in title:
-        event_type = "acquisition"
-    elif "launch" in title:
-        event_type = "launch"
-    else:
-        event_type = "other"
+    if "funding" in title or "raises" in title:
+        keywords.append("funding")
 
-    # Amount
-    amount_match = re.search(r'\$(\d+)\s?(m|b)', title)
-    amount = amount_match.group(0) if amount_match else ""
+    if "acquire" in title:
+        keywords.append("acquisition")
 
-    # Valuation
-    valuation_match = re.search(r'\$?\d+\s?b valuation|\$?\d+\s?b', title)
-    valuation = valuation_match.group(0) if valuation_match else ""
+    if "launch" in title:
+        keywords.append("launch")
 
-    amount = amount.replace(" ", "")
-    valuation = valuation.replace(" ", "")
+    # Money extraction
+    money = re.findall(r'\$\d+[mb]?', title)
+    keywords.extend(money)
 
-    return event_type, amount, valuation
+    # Valuation extraction
+    valuation = re.findall(r'\$\d+\s?b', title)
+    keywords.extend(valuation)
+
+    return " ".join(sorted(set(keywords)))
 
 # =========================================================
 # READ STARTUPS
@@ -226,7 +223,7 @@ for feed_url in RSS_FEEDS:
             ])
 
 # =========================================================
-# 🔥 DECISION-LEVEL DEDUP
+# 🔥 EVENT-BASED DEDUPLICATION
 # =========================================================
 event_groups = {}
 
@@ -234,18 +231,10 @@ for row in all_articles:
     startup = row[0]
     title = row[1]
 
-    event_type, amount, valuation = extract_event_signature(title)
+    signature = extract_event_signature(title)
+    key = f"{startup}_{signature}"
 
-    # ❗ Skip weak/noisy articles
-    if event_type == "other":
-        continue
-
-    if amount == "" and valuation == "":
-        continue
-
-    key = f"{startup}_{event_type}_{amount}_{valuation}"
-
-    # Keep best headline
+    # Keep best (longest) title
     if key not in event_groups or len(title) > len(event_groups[key][1]):
         event_groups[key] = row
 
@@ -277,4 +266,4 @@ if df.empty:
     print("✅ No new relevant data")
 else:
     output_sheet.append_rows(df.values.tolist(), value_input_option='RAW')
-    print("✅ Clean decision-level insights added")
+    print("✅ Clean event-level insights added")
