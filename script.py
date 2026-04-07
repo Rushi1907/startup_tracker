@@ -72,39 +72,6 @@ def get_feed_name(feed, feed_url):
     return domain_map.get(domain, domain)
 
 # =========================================================
-# STRONG EVENT FILTER
-# =========================================================
-def is_strong_event(title):
-    strong_keywords = [
-        "raises", "raised", "funding", "acquires", "acquisition",
-        "launches", "merger", "deal", "secures"
-    ]
-    return any(k in title.lower() for k in strong_keywords)
-
-# =========================================================
-# EVENT SIGNATURE (IMPROVED)
-# =========================================================
-def extract_event_signature(title):
-    title = title.lower()
-
-    if "raise" in title or "funding" in title:
-        event_type = "funding"
-    elif "acquire" in title:
-        event_type = "acquisition"
-    elif "launch" in title:
-        event_type = "launch"
-    else:
-        event_type = "other"
-
-    amount_match = re.search(r'\$(\d+)\s?(m|b)', title)
-    amount = amount_match.group(0) if amount_match else "unknown"
-
-    valuation_match = re.search(r'\$?\d+\s?b', title)
-    valuation = valuation_match.group(0) if valuation_match else "unknown"
-
-    return event_type, amount, valuation
-
-# =========================================================
 # INSIGHT FUNCTION
 # =========================================================
 def generate_insight(title):
@@ -116,8 +83,50 @@ def generate_insight(title):
         return "Acquisition → expansion or market consolidation"
     elif "launch" in title:
         return "Product launch → innovation signal"
+    elif "partnership" in title:
+        return "Strategic partnership → scaling opportunity"
     else:
         return "General update → monitor"
+
+# =========================================================
+# RELEVANCE FILTER
+# =========================================================
+def is_relevant(title):
+    keywords = [
+        "funding", "raises", "raised", "acquire", "acquired",
+        "launch", "launches", "partnership", "investment",
+        "expansion", "deal", "merger"
+    ]
+    return any(k in title.lower() for k in keywords)
+
+# =========================================================
+# 🔥 EVENT SIGNATURE (STRUCTURED)
+# =========================================================
+def extract_event_signature(title):
+    title = title.lower()
+
+    # Event type
+    if "raise" in title or "funding" in title:
+        event_type = "funding"
+    elif "acquire" in title:
+        event_type = "acquisition"
+    elif "launch" in title:
+        event_type = "launch"
+    else:
+        event_type = "other"
+
+    # Amount
+    amount_match = re.search(r'\$(\d+)\s?(m|b)', title)
+    amount = amount_match.group(0) if amount_match else ""
+
+    # Valuation
+    valuation_match = re.search(r'\$?\d+\s?b valuation|\$?\d+\s?b', title)
+    valuation = valuation_match.group(0) if valuation_match else ""
+
+    amount = amount.replace(" ", "")
+    valuation = valuation.replace(" ", "")
+
+    return event_type, amount, valuation
 
 # =========================================================
 # READ STARTUPS
@@ -162,16 +171,12 @@ for startup in startups:
         title_raw = entry.get("title", "")
         title = title_raw.lower()
 
-        # STRICT ENTITY MATCH
-        if not re.search(rf'\b{re.escape(startup)}\b', title):
+        if not is_relevant(title):
             continue
 
-        # REMOVE WEAK CONTEXT
-        if any(w in title for w in ["rival", "backed", "related"]):
-            continue
+        pattern = r'\b' + re.escape(startup) + r'\b'
 
-        # STRONG EVENT ONLY
-        if not is_strong_event(title):
+        if not re.search(pattern, title):
             continue
 
         all_articles.append([
@@ -181,8 +186,7 @@ for startup in startups:
             entry.get("published", ""),
             source_name,
             generate_insight(title_raw),
-            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-            published_time
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         ])
 
 # ---------------- CUSTOM RSS ----------------
@@ -194,14 +198,13 @@ for feed_url in RSS_FEEDS:
         title_raw = entry.get("title", "")
         title = title_raw.lower()
 
-        if not is_strong_event(title):
+        if not is_relevant(title):
             continue
 
         for startup in startups:
-            if not re.search(rf'\b{re.escape(startup)}\b', title):
-                continue
+            pattern = r'\b' + re.escape(startup) + r'\b'
 
-            if any(w in title for w in ["rival", "backed", "related"]):
+            if not re.search(pattern, title):
                 continue
 
             if hasattr(entry, "published_parsed") and entry.published_parsed:
@@ -219,30 +222,30 @@ for feed_url in RSS_FEEDS:
                 entry.get("published", ""),
                 source_name,
                 generate_insight(title_raw),
-                datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
-                published_time
+                datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             ])
 
 # =========================================================
-# 🔥 DECISION-LEVEL DEDUP (IMPROVED)
+# 🔥 DECISION-LEVEL DEDUP
 # =========================================================
 event_groups = {}
 
 for row in all_articles:
-    startup, title, link, pub, source, insight, fetched, published_time = row
+    startup = row[0]
+    title = row[1]
 
     event_type, amount, valuation = extract_event_signature(title)
 
+    # ❗ Skip weak/noisy articles
     if event_type == "other":
         continue
 
-    if amount == "unknown" and valuation == "unknown":
+    if amount == "" and valuation == "":
         continue
 
-    date_key = published_time.strftime("%Y-%m-%d")
+    key = f"{startup}_{event_type}_{amount}_{valuation}"
 
-    key = f"{startup}_{event_type}_{amount}_{valuation}_{date_key}"
-
+    # Keep best headline
     if key not in event_groups or len(title) > len(event_groups[key][1]):
         event_groups[key] = row
 
@@ -258,14 +261,12 @@ df = pd.DataFrame(all_articles, columns=[
     "Published",
     "Source",
     "Insights",
-    "Fetched At",
-    "Published_dt"
+    "Fetched At"
 ])
 
-df.drop(columns=["Published_dt"], inplace=True)
 df.drop_duplicates(subset=["Title", "Link"], inplace=True)
 
-print(f"\nFiltered rows after refinement: {len(df)}")
+print(f"\nFiltered rows after event dedup: {len(df)}")
 
 # =========================================================
 # WRITE TO GOOGLE SHEET
@@ -276,4 +277,4 @@ if df.empty:
     print("✅ No new relevant data")
 else:
     output_sheet.append_rows(df.values.tolist(), value_input_option='RAW')
-    print("✅ High-quality decision-level insights added")
+    print("✅ Clean decision-level insights added")
