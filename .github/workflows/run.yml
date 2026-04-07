@@ -1,23 +1,38 @@
 name: Startup Tracker Automation
 
 on:
+  push:
+    branches: [ main ]   # Runs when you push to main
   schedule:
-    - cron: "0 */12 * * *"
-  workflow_dispatch:
+    - cron: "0 */12 * * *"   # Runs every 12 hours (uses default branch = main)
+  workflow_dispatch:   # Allows manual run
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository (force main)
+        uses: actions/checkout@v4
+        with:
+          ref: main
 
-      - uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
-      - run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - run: python script.py
+      - name: Debug branch & commit (IMPORTANT)
+        run: |
+          echo "Branch:"
+          git branch
+          echo "Commit:"
+          git rev-parse HEAD
+
+      - name: Run script
+        run: python script.py
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
