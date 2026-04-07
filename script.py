@@ -10,7 +10,6 @@ from urllib.parse import quote_plus
 import os
 import json
 import re
-from difflib import SequenceMatcher
 
 # =========================================================
 # DATE FILTER (Q1 2026)
@@ -46,22 +45,7 @@ creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
 client = gspread.authorize(creds)
 
 # =========================================================
-# CLEAN TITLE (FOR DEDUP)
-# =========================================================
-def clean_title(title):
-    title = title.lower()
-    title = re.sub(r'[^a-z0-9\s]', '', title)
-    title = re.sub(r'\s+', ' ', title).strip()
-    return title
-
-# =========================================================
-# SIMILARITY FUNCTION
-# =========================================================
-def is_similar(a, b, threshold=0.7):
-    return SequenceMatcher(None, a, b).ratio() > threshold
-
-# =========================================================
-# GET SOURCE NAME
+# SOURCE NAME
 # =========================================================
 def get_feed_name(feed, feed_url):
     try:
@@ -88,7 +72,7 @@ def get_feed_name(feed, feed_url):
     return domain_map.get(domain, domain)
 
 # =========================================================
-# AI INSIGHT FUNCTION
+# INSIGHT FUNCTION
 # =========================================================
 def generate_insight(title):
     title = title.lower()
@@ -114,6 +98,32 @@ def is_relevant(title):
         "expansion", "deal", "merger"
     ]
     return any(k in title.lower() for k in keywords)
+
+# =========================================================
+# EVENT SIGNATURE (KEY DEDUP LOGIC)
+# =========================================================
+def extract_event_signature(title):
+    title = title.lower()
+    keywords = []
+
+    if "funding" in title or "raises" in title:
+        keywords.append("funding")
+
+    if "acquire" in title:
+        keywords.append("acquisition")
+
+    if "launch" in title:
+        keywords.append("launch")
+
+    # Money extraction
+    money = re.findall(r'\$\d+[mb]?', title)
+    keywords.extend(money)
+
+    # Valuation extraction
+    valuation = re.findall(r'\$\d+\s?b', title)
+    keywords.extend(valuation)
+
+    return " ".join(sorted(set(keywords)))
 
 # =========================================================
 # READ STARTUPS
@@ -213,25 +223,22 @@ for feed_url in RSS_FEEDS:
             ])
 
 # =========================================================
-# 🔥 SEMANTIC DEDUPLICATION
+# 🔥 EVENT-BASED DEDUPLICATION
 # =========================================================
-unique_articles = []
-seen_titles = []
+event_groups = {}
 
 for row in all_articles:
-    cleaned = clean_title(row[1])
+    startup = row[0]
+    title = row[1]
 
-    duplicate = False
-    for seen in seen_titles:
-        if is_similar(cleaned, seen):
-            duplicate = True
-            break
+    signature = extract_event_signature(title)
+    key = f"{startup}_{signature}"
 
-    if not duplicate:
-        seen_titles.append(cleaned)
-        unique_articles.append(row)
+    # Keep best (longest) title
+    if key not in event_groups or len(title) > len(event_groups[key][1]):
+        event_groups[key] = row
 
-all_articles = unique_articles
+all_articles = list(event_groups.values())
 
 # =========================================================
 # DATAFRAME
@@ -248,7 +255,7 @@ df = pd.DataFrame(all_articles, columns=[
 
 df.drop_duplicates(subset=["Title", "Link"], inplace=True)
 
-print(f"\nFiltered rows after dedup: {len(df)}")
+print(f"\nFiltered rows after event dedup: {len(df)}")
 
 # =========================================================
 # WRITE TO GOOGLE SHEET
@@ -259,4 +266,4 @@ if df.empty:
     print("✅ No new relevant data")
 else:
     output_sheet.append_rows(df.values.tolist(), value_input_option='RAW')
-    print("✅ Clean deduplicated insights added")
+    print("✅ Clean event-level insights added")
