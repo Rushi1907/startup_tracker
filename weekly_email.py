@@ -41,36 +41,35 @@ client = gspread.authorize(creds)
 # =========================================================
 # FETCH WEEKLY DATA
 # =========================================================
+# =========================================================
+# FETCH WEEKLY DATA
+# =========================================================
 def get_weekly_data():
-    # Use the variables defined in your CONFIG section
+    # Use SHEET_NAME (News_Log_V2) instead of "Sheet1"
     sheet = client.open(SPREADSHEET_NAME).worksheet(SHEET_NAME)
     data = sheet.get_all_records()
 
     df = pd.DataFrame(data)
 
     if df.empty:
-        print("Warning: No data found in the sheet.")
+        print(f"No data found in {SHEET_NAME}")
         return df
 
-    # 1. Clean up column names (removes hidden spaces like "Published ")
+    # Clean up column names (removes hidden spaces)
     df.columns = df.columns.str.strip()
 
-    # 2. Safety check: Print columns to logs if 'Published' is missing
+    # Safety check: if 'Published' is still missing, print columns to log
     if "Published" not in df.columns:
-        print(f"❌ Error: 'Published' column not found!")
-        print(f"Available columns are: {list(df.columns)}")
-        # If your column is actually named 'published' (lowercase), 
-        # you can fix it here or change it in the Google Sheet.
-        return pd.DataFrame() 
+        print(f"❌ Error: 'Published' column not found in {SHEET_NAME}")
+        print(f"I found these columns instead: {list(df.columns)}")
+        return pd.DataFrame()
 
-    # 3. Convert to datetime
     df["Published"] = pd.to_datetime(df["Published"], errors="coerce")
 
-    # 4. Filter for last 7 days
     last_7_days = datetime.utcnow() - timedelta(days=7)
     df_week = df[df["Published"] >= last_7_days].copy()
 
-    return df_week# =========================================================
+    return df_week
 # EMAIL TEMPLATE (HTML)
 # =========================================================
 def generate_email(df):
