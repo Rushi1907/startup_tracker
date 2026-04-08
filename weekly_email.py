@@ -42,7 +42,7 @@ client = gspread.authorize(creds)
 # FETCH WEEKLY DATA
 # =========================================================
 def get_weekly_data():
-    sheet = client.open(Startup Tracker).worksheet(Sheet1)
+    sheet = client.open("Startup Tracker").worksheet("Sheet1")
     data = sheet.get_all_records()
 
     df = pd.DataFrame(data)
