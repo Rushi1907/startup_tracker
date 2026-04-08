@@ -44,25 +44,29 @@ client = gspread.authorize(creds)
 # =========================================================
 # FETCH WEEKLY DATA
 # =========================================================
-def get_weekly_data():
-    # Use SHEET_NAME (News_Log_V2) instead of "Sheet1"
+ddef get_weekly_data():
     sheet = client.open(SPREADSHEET_NAME).worksheet(SHEET_NAME)
-    data = sheet.get_all_records()
 
-    df = pd.DataFrame(data)
+    # Get raw data (including header)
+    data = sheet.get_all_values()
 
-    if df.empty:
-        print(f"No data found in {SHEET_NAME}")
-        return df
+    if not data or len(data) < 2:
+        print(f"No usable data in {SHEET_NAME}")
+        return pd.DataFrame()
 
-    # Clean up column names (removes hidden spaces)
+    # First row = header
+    headers = data[0]
+    rows = data[1:]
+
+    df = pd.DataFrame(rows, columns=headers)
+
+    # Clean columns
     df.columns = df.columns.str.strip()
 
-    # Safety check: if 'Published' is still missing, print columns to log
+    print("Columns detected:", df.columns.tolist())
+
     if "Published" not in df.columns:
-        print(f"❌ Error: 'Published' column not found in {SHEET_NAME}")
-        print(f"I found these columns instead: {list(df.columns)}")
-        return pd.DataFrame()
+        raise ValueError(f"'Published' missing. Found: {df.columns.tolist()}")
 
     df["Published"] = pd.to_datetime(df["Published"], errors="coerce")
 
