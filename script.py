@@ -100,12 +100,11 @@ def is_relevant(title):
     return any(k in title.lower() for k in keywords)
 
 # =========================================================
-# 🔥 EVENT SIGNATURE (STRUCTURED)
+# EVENT SIGNATURE
 # =========================================================
 def extract_event_signature(title):
     title = title.lower()
 
-    # Event type
     if "raise" in title or "funding" in title:
         event_type = "funding"
     elif "acquire" in title:
@@ -115,16 +114,11 @@ def extract_event_signature(title):
     else:
         event_type = "other"
 
-    # Amount
     amount_match = re.search(r'\$(\d+)\s?(m|b)', title)
     amount = amount_match.group(0) if amount_match else ""
 
-    # Valuation
     valuation_match = re.search(r'\$?\d+\s?b valuation|\$?\d+\s?b', title)
     valuation = valuation_match.group(0) if valuation_match else ""
-
-    amount = amount.replace(" ", "")
-    valuation = valuation.replace(" ", "")
 
     return event_type, amount, valuation
 
@@ -174,9 +168,7 @@ for startup in startups:
         if not is_relevant(title):
             continue
 
-        pattern = r'\b' + re.escape(startup) + r'\b'
-
-        if not re.search(pattern, title):
+        if not re.search(rf'\b{re.escape(startup)}\b', title):
             continue
 
         all_articles.append([
@@ -202,9 +194,7 @@ for feed_url in RSS_FEEDS:
             continue
 
         for startup in startups:
-            pattern = r'\b' + re.escape(startup) + r'\b'
-
-            if not re.search(pattern, title):
+            if not re.search(rf'\b{re.escape(startup)}\b', title):
                 continue
 
             if hasattr(entry, "published_parsed") and entry.published_parsed:
@@ -226,17 +216,15 @@ for feed_url in RSS_FEEDS:
             ])
 
 # =========================================================
-# 🔥 DECISION-LEVEL DEDUP
+# DEDUP (EVENT LEVEL)
 # =========================================================
 event_groups = {}
 
 for row in all_articles:
-    startup = row[0]
-    title = row[1]
+    startup, title = row[0], row[1]
 
     event_type, amount, valuation = extract_event_signature(title)
 
-    # ❗ Skip weak/noisy articles
     if event_type == "other":
         continue
 
@@ -245,7 +233,6 @@ for row in all_articles:
 
     key = f"{startup}_{event_type}_{amount}_{valuation}"
 
-    # Keep best headline
     if key not in event_groups or len(title) > len(event_groups[key][1]):
         event_groups[key] = row
 
@@ -264,17 +251,40 @@ df = pd.DataFrame(all_articles, columns=[
     "Fetched At"
 ])
 
-df.drop_duplicates(subset=["Title", "Link"], inplace=True)
-
-print(f"\nFiltered rows after event dedup: {len(df)}")
-
 # =========================================================
-# WRITE TO GOOGLE SHEET
+# 🔥 CHECK EXISTING (PREVENT DUPLICATES)
 # =========================================================
+def get_existing_keys(sheet):
+    data = sheet.get_all_values()
+
+    if len(data) <= 1:
+        return set()
+
+    return set((row[1], row[2]) for row in data[1:] if len(row) > 2)
+
 output_sheet = client.open("Startup Tracker").worksheet("News_Log_V2")
+existing_keys = get_existing_keys(output_sheet)
 
-if df.empty:
-    print("✅ No new relevant data")
+df_new = df[~df.apply(lambda x: (x["Title"], x["Link"]) in existing_keys, axis=1)]
+
+print(f"\nNew rows: {len(df_new)}")
+
+# =========================================================
+# 🔥 WRITE + STATUS TRACKING
+# =========================================================
+status_sheet = client.open("Startup Tracker").worksheet("System_Status")
+
+current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+if df_new.empty:
+    print("✅ No new updates — system ran successfully")
+
+    status_sheet.update("A1", [["Last Updated", "Status", "New Records"]])
+    status_sheet.update("A2", [[current_time, "No New Updates", 0]])
+
 else:
-    output_sheet.append_rows(df.values.tolist(), value_input_option='RAW')
-    print("✅ Clean decision-level insights added")
+    output_sheet.append_rows(df_new.values.tolist(), value_input_option='RAW')
+    print("✅ Only NEW insights added")
+
+    status_sheet.update("A1", [["Last Updated", "Status", "New Records"]])
+    status_sheet.update("A2", [[current_time, "Updated", len(df_new)]])
