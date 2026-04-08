@@ -17,8 +17,8 @@ from email.mime.multipart import MIMEMultipart
 SPREADSHEET_NAME = "Startup Tracker"
 SHEET_NAME = "News_Log_V2"
 
-EMAIL_USER = os.environ["rushikesh.deshmukh1907@gmail.com"]
-EMAIL_PASS = os.environ["blmxntzjlaegoiqd"]
+EMAIL_USER = os.environ["EMAIL_USER"]
+EMAIL_PASS = os.environ["EMAIL_PASS"]
 
 TO_EMAIL = "rushikeshd1907@gmail.com"
 GOOGLE_SHEET_LINK = "https://docs.google.com/spreadsheets/d/1xtQQ1eQuvcYgO6c54c7g65l7cGqZN_YSSgStHFvARho/edit?pli=1&gid=1374023458#gid=1374023458"
