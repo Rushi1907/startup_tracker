@@ -42,22 +42,35 @@ client = gspread.authorize(creds)
 # FETCH WEEKLY DATA
 # =========================================================
 def get_weekly_data():
-    sheet = client.open("Startup Tracker").worksheet("Sheet1")
+    # Use the variables defined in your CONFIG section
+    sheet = client.open(SPREADSHEET_NAME).worksheet(SHEET_NAME)
     data = sheet.get_all_records()
 
     df = pd.DataFrame(data)
 
     if df.empty:
+        print("Warning: No data found in the sheet.")
         return df
 
+    # 1. Clean up column names (removes hidden spaces like "Published ")
+    df.columns = df.columns.str.strip()
+
+    # 2. Safety check: Print columns to logs if 'Published' is missing
+    if "Published" not in df.columns:
+        print(f"❌ Error: 'Published' column not found!")
+        print(f"Available columns are: {list(df.columns)}")
+        # If your column is actually named 'published' (lowercase), 
+        # you can fix it here or change it in the Google Sheet.
+        return pd.DataFrame() 
+
+    # 3. Convert to datetime
     df["Published"] = pd.to_datetime(df["Published"], errors="coerce")
 
+    # 4. Filter for last 7 days
     last_7_days = datetime.utcnow() - timedelta(days=7)
-    df_week = df[df["Published"] >= last_7_days]
+    df_week = df[df["Published"] >= last_7_days].copy()
 
-    return df_week
-
-# =========================================================
+    return df_week# =========================================================
 # EMAIL TEMPLATE (HTML)
 # =========================================================
 def generate_email(df):
