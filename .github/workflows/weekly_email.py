@@ -1,0 +1,24 @@
+name: Weekly Email
+
+on:
+  schedule:
+    - cron: '15 11 * * WED'
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - run: pip install -r requirements.txt
+
+      - run: python weekly_email.py
+        env:
+          SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
