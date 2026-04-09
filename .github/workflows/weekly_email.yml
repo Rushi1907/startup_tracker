@@ -5,7 +5,7 @@ on:
     branches:
       - main   # ensures latest code triggers workflow
   schedule:
-    - cron: '37 11 * * WED'
+    - cron: '58 6 * * 4'
   workflow_dispatch:
 
 jobs:
