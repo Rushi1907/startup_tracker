@@ -36,6 +36,6 @@ jobs:
       - name: Run Python Script
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER}}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS}}
         run: python weekly_email.py
