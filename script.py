@@ -10,10 +10,9 @@ from urllib.parse import quote_plus
 import os
 import json
 import re
-import hashlib   # ✅ NEW
 
 # =========================================================
-# DATE FILTER
+# DATE FILTER (Q1 2026)
 # =========================================================
 Q1_START = datetime(2026, 1, 1)
 
@@ -44,25 +43,6 @@ scope = [
 creds_dict = json.loads(os.environ["GOOGLE_CREDENTIALS"])
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
 client = gspread.authorize(creds)
-
-# =========================================================
-# 🔥 DEDUP HELPERS (NEW)
-# =========================================================
-def normalize_title(title):
-    title = title.lower()
-    title = re.sub(r'[^a-z0-9 ]', '', title)
-
-    stopwords = ["the", "a", "an", "in", "at", "to", "for", "of", "and"]
-    words = [w for w in title.split() if w not in stopwords]
-
-    return " ".join(words)
-
-def generate_unique_key(title, link):
-    return hashlib.md5((title + link).lower().encode()).hexdigest()
-
-def generate_similarity_key(startup, title):
-    normalized = normalize_title(title)
-    return f"{startup.lower()}_{normalized[:60]}"
 
 # =========================================================
 # SOURCE NAME
@@ -120,17 +100,42 @@ def is_relevant(title):
     return any(k in title.lower() for k in keywords)
 
 # =========================================================
-# LOAD STARTUPS
+# EVENT SIGNATURE
+# =========================================================
+def extract_event_signature(title):
+    title = title.lower()
+
+    if "raise" in title or "funding" in title:
+        event_type = "funding"
+    elif "acquire" in title:
+        event_type = "acquisition"
+    elif "launch" in title:
+        event_type = "launch"
+    else:
+        event_type = "other"
+
+    amount_match = re.search(r'\$(\d+)\s?(m|b)', title)
+    amount = amount_match.group(0) if amount_match else ""
+
+    valuation_match = re.search(r'\$?\d+\s?b valuation|\$?\d+\s?b', title)
+    valuation = valuation_match.group(0) if valuation_match else ""
+
+    return event_type, amount, valuation
+
+# =========================================================
+# READ STARTUPS
 # =========================================================
 sheet = client.open("Startup Tracker").sheet1
 data = sheet.get_all_records()
 
 startup_map = {
     row["Startup Name"].strip().lower(): row["Startup Name"].strip()
-    for row in data if row["Startup Name"]
+    for row in data
+    if row["Startup Name"]
 }
 
 startups = list(startup_map.keys())
+
 print("Startups loaded:", startups)
 
 # =========================================================
@@ -138,56 +143,61 @@ print("Startups loaded:", startups)
 # =========================================================
 all_articles = []
 
-# -------- GOOGLE NEWS --------
+# ---------------- GOOGLE NEWS ----------------
 for startup in startups:
     query = f"{startup} (funding OR acquisition OR launch) after:2026-01-01"
-    google_url = f"https://news.google.com/rss/search?q={quote_plus(query)}"
+    encoded_query = quote_plus(query)
 
+    google_url = f"https://news.google.com/rss/search?q={encoded_query}"
     feed = feedparser.parse(google_url)
+
     source_name = get_feed_name(feed, google_url)
 
     for entry in feed.entries:
-        if not entry.get("published_parsed"):
+        if not hasattr(entry, "published_parsed") or entry.published_parsed is None:
             continue
 
         published_time = datetime(*entry.published_parsed[:6])
+
         if published_time < Q1_START:
             continue
 
-        title = entry.get("title", "")
+        title_raw = entry.get("title", "")
+        title = title_raw.lower()
 
         if not is_relevant(title):
             continue
 
-        if not re.search(rf'\b{re.escape(startup)}\b', title.lower()):
+        if not re.search(rf'\b{re.escape(startup)}\b', title):
             continue
 
         all_articles.append([
             startup_map[startup],
-            title,
+            title_raw,
             entry.get("link", ""),
             entry.get("published", ""),
             source_name,
-            generate_insight(title),
+            generate_insight(title_raw),
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
         ])
 
-# -------- CUSTOM RSS --------
+# ---------------- CUSTOM RSS ----------------
 for feed_url in RSS_FEEDS:
     feed = feedparser.parse(feed_url)
     source_name = get_feed_name(feed, feed_url)
 
     for entry in feed.entries:
-        title = entry.get("title", "")
+        title_raw = entry.get("title", "")
+        title = title_raw.lower()
 
         if not is_relevant(title):
             continue
 
         for startup in startups:
-            if not re.search(rf'\b{re.escape(startup)}\b', title.lower()):
+            if not re.search(rf'\b{re.escape(startup)}\b', title):
                 continue
 
-            if entry.get("published_parsed"):
+            if hasattr(entry, "published_parsed") and entry.published_parsed:
                 published_time = datetime(*entry.published_parsed[:6])
             else:
                 published_time = datetime.utcnow()
@@ -197,13 +207,36 @@ for feed_url in RSS_FEEDS:
 
             all_articles.append([
                 startup_map[startup],
-                title,
+                title_raw,
                 entry.get("link", ""),
                 entry.get("published", ""),
                 source_name,
-                generate_insight(title),
+                generate_insight(title_raw),
                 datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
             ])
+
+# =========================================================
+# DEDUP (EVENT LEVEL)
+# =========================================================
+event_groups = {}
+
+for row in all_articles:
+    startup, title = row[0], row[1]
+
+    event_type, amount, valuation = extract_event_signature(title)
+
+    if event_type == "other":
+        continue
+
+    if amount == "" and valuation == "":
+        continue
+
+    key = f"{startup}_{event_type}_{amount}_{valuation}"
+
+    if key not in event_groups or len(title) > len(event_groups[key][1]):
+        event_groups[key] = row
+
+all_articles = list(event_groups.values())
 
 # =========================================================
 # DATAFRAME
@@ -218,63 +251,40 @@ df = pd.DataFrame(all_articles, columns=[
     "Fetched At"
 ])
 
-if df.empty:
-    print("No data fetched")
-    exit()
-
 # =========================================================
-# 🔥 DEDUP LAYERS
+# 🔥 CHECK EXISTING (PREVENT DUPLICATES)
 # =========================================================
-
-# 1. Exact duplicates
-df["Unique Key"] = df.apply(
-    lambda x: generate_unique_key(x["Title"], x["Link"]), axis=1
-)
-
-# 2. Similar titles (same event)
-df["Similarity Key"] = df.apply(
-    lambda x: generate_similarity_key(x["Startup Name"], x["Title"]), axis=1
-)
-
-# Remove duplicates inside current run
-df = df.drop_duplicates(subset=["Similarity Key"])
-
-# =========================================================
-# 🔥 CHECK EXISTING
-# =========================================================
-output_sheet = client.open("Startup Tracker").worksheet("News_Log_V2")
-
 def get_existing_keys(sheet):
     data = sheet.get_all_values()
 
     if len(data) <= 1:
         return set()
 
-    headers = [h.strip() for h in data[0]]
+    return set((row[1], row[2]) for row in data[1:] if len(row) > 2)
 
-    if "Similarity Key" not in headers:
-        raise ValueError("❌ 'Similarity Key' column missing")
-
-    idx = headers.index("Similarity Key")
-
-    return set(row[idx] for row in data[1:] if len(row) > idx)
-
+output_sheet = client.open("Startup Tracker").worksheet("News_Log_V2")
 existing_keys = get_existing_keys(output_sheet)
 
-df_new = df[~df["Similarity Key"].isin(existing_keys)]
+df_new = df[~df.apply(lambda x: (x["Title"], x["Link"]) in existing_keys, axis=1)]
 
 print(f"\nNew rows: {len(df_new)}")
 
 # =========================================================
-# WRITE
+# 🔥 WRITE + STATUS TRACKING
 # =========================================================
 status_sheet = client.open("Startup Tracker").worksheet("System_Status")
+
 current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
 if df_new.empty:
-    print("✅ No new updates")
+    print("✅ No new updates — system ran successfully")
+
+    status_sheet.update("A1", [["Last Updated", "Status", "New Records"]])
     status_sheet.update("A2", [[current_time, "No New Updates", 0]])
+
 else:
     output_sheet.append_rows(df_new.values.tolist(), value_input_option='RAW')
-    print("✅ Clean data added")
+    print("✅ Only NEW insights added")
+
+    status_sheet.update("A1", [["Last Updated", "Status", "New Records"]])
     status_sheet.update("A2", [[current_time, "Updated", len(df_new)]])
