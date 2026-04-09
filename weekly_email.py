@@ -44,7 +44,7 @@ client = gspread.authorize(creds)
 # =========================================================
 # FETCH WEEKLY DATA
 # =========================================================
-ddef get_weekly_data():
+def get_weekly_data():
     sheet = client.open(SPREADSHEET_NAME).worksheet(SHEET_NAME)
 
     # Get raw data (including header)
