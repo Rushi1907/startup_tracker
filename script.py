@@ -95,8 +95,8 @@ def is_relevant(title):
     keywords = [
         "funding", "raises", "raised", "acquire", "acquired",
         "launch", "launches", "partnership", "investment",
-        "expansion", "deal", "merger"
-    ]
+        "expansion", "deal", "merger", "expansion", "deal", "merger", "merged", "invested", "deals", "launched", "expands", "fundings", "Synergy", "Burn rate", "Surpasses","Early Mover","Stealthy"
+         ]
     return any(k in title.lower() for k in keywords)
 
 # =========================================================
